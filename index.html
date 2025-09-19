@@ -20,7 +20,7 @@
       text-align: left; font-size: 0.95em; line-height: 1.5; box-sizing: border-box;
     }
     #ranking {
-      margin: 22px auto 0; width: min(500px, 92vw);
+      margin: 22px auto 0; width: min(520px, 92vw);
       text-align: left; font-size: 1em; border:1px solid #ddd; border-radius: 10px; padding: 12px;
     }
     .muted { opacity: .75; }
@@ -47,17 +47,19 @@
     <ol id="rankingList" class="muted"><li>불러오는 중…</li></ol>
   </div>
 
-  <!-- Firebase (모듈러 SDK) -->
+  <!-- Firebase (모듈러 SDK) + Firestore -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import {
+      getFirestore, collection, addDoc, query, orderBy, limit, getDocs
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // ==== 0) Firebase 설정 (네가 준 값 사용) ====
+    // ==== 0) Firebase 설정 (제공해주신 값) ====
     const firebaseConfig = {
       apiKey: "AIzaSyCFBvuggzIu5X_Mnb-2p_8moEEaelp767Q",
       authDomain: "capital-game-475b6.firebaseapp.com",
       projectId: "capital-game-475b6",
-      storageBucket: "capital-game-475b6.firebasestorage.app", // Firestore만 쓰므로 상관없음
+      storageBucket: "capital-game-475b6.firebasestorage.app",
       messagingSenderId: "797715470549",
       appId: "1:797715470549:web:0832e971bef0108da8ea5c"
     };
@@ -130,39 +132,54 @@
     const timerEl = document.getElementById("timer");
     const rankingList = document.getElementById("rankingList");
 
-    // ==== 4) 랭킹 ====
+    // ==== 4) 랭킹(인덱스 불필요 버전 + 에러 노출) ====
     async function loadRanking(){
       rankingList.innerHTML = "<li class='muted'>불러오는 중…</li>";
-      const q = query(SCORES, orderBy("score","desc"), orderBy("timestamp","asc"), limit(10));
-      const snap = await getDocs(q);
-      rankingList.innerHTML = "";
-      if (snap.empty) {
-        rankingList.innerHTML = "<li class='muted'>아직 기록이 없습니다</li>";
-        return;
+      try {
+        // 단일 정렬: 복합 색인 없이 동작
+        const q = query(SCORES, orderBy("score","desc"), limit(10));
+        const snap = await getDocs(q);
+        rankingList.innerHTML = "";
+        if (snap.empty) {
+          rankingList.innerHTML = "<li class='muted'>아직 기록이 없습니다</li>";
+          return;
+        }
+        snap.forEach(doc=>{
+          const d = doc.data();
+          const li = document.createElement("li");
+          li.textContent = `${d.name} - ${d.score}개`;
+          rankingList.appendChild(li);
+        });
+      } catch (err) {
+        console.error("랭킹 로드 에러:", err);
+        rankingList.innerHTML = `<li class='muted'>랭킹을 불러오지 못했습니다: ${err.code || err.message}</li>`;
       }
-      snap.forEach(doc=>{
-        const d = doc.data();
-        const li = document.createElement("li");
-        li.textContent = `${d.name} - ${d.score}개`;
-        rankingList.appendChild(li);
-      });
     }
 
     async function maybeRegisterRanking(finalScore){
-      // Top10 진입 가능성 확인을 위해 현재 Top10 조회
-      const q = query(SCORES, orderBy("score","desc"), limit(10));
-      const snap = await getDocs(q);
-      let qualifies = snap.size < 10;
-      if (!qualifies) {
-        const minTop = snap.docs[snap.docs.length-1].data().score;
-        qualifies = finalScore > minTop;
-      }
-      if (!qualifies) { await loadRanking(); return; }
+      try {
+        // Top10 진입 여부(단일 정렬)
+        const snap = await getDocs(query(SCORES, orderBy("score","desc"), limit(10)));
+        let qualifies = snap.size < 10;
+        if (!qualifies) {
+          const minTop = snap.docs[snap.docs.length-1].data().score;
+          qualifies = finalScore > minTop;
+        }
+        if (!qualifies) { await loadRanking(); return; }
 
-      const name = prompt("🎉 10위 안에 들었습니다! 이름을 입력하세요 (최대 20자):");
-      if (!name) { await loadRanking(); return; }
-      await addDoc(SCORES, { name: name.trim().slice(0,20), score: finalScore, timestamp: new Date() });
-      await loadRanking();
+        const name = prompt("🎉 10위 안에 들었습니다! 이름을 입력하세요 (최대 20자):");
+        if (!name) { await loadRanking(); return; }
+
+        await addDoc(SCORES, {
+          name: name.trim().slice(0,20),
+          score: finalScore,
+          timestamp: new Date()
+        });
+        await loadRanking();
+      } catch (err) {
+        console.error("랭킹 저장 에러:", err);
+        alert("랭킹 저장 중 오류가 발생했습니다: " + (err.code || err.message));
+      }
     }
 
     // ==== 5) 타이머 ====
@@ -234,10 +251,10 @@
     // ==== 7) 초기화 ====
     loadRanking();
     updateTimerText();
-    // 첫 엔터로 시작되도록 current 없으면 nextQuestion은 checkAnswer에서 호출
+    // 첫 엔터로 시작되도록 current 없음 → checkAnswer가 nextQuestion 호출
   </script>
 
-  <!-- PWA 서비스 워커 등록(옵션) -->
+  <!-- PWA 서비스 워커 등록(선택) -->
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("service-worker.js")
