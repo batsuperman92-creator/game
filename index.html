@@ -2,162 +2,248 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>🌍 수도 맞히기 게임 (Firebase 랭킹 연동)</title>
+  <title>🌍 수도 맞히기 게임 (190개 + Firebase 랭킹)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#317EFB"/>
-
   <style>
     body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 20px; }
     h1 { font-size: 1.8em; }
-    input { padding: 12px; width: 80%; font-size: 1.1em; margin-top: 10px; }
+    #headerRow { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin: 8px 0 14px; }
+    input { padding: 12px; width: 92%; max-width: 720px; font-size: 1.1em; }
     #status { margin-top: 12px; font-weight: bold; min-height: 1.4em; }
-    #lives, #score, #timer { margin-top: 8px; font-size: 1.05em; }
-    #history { margin-top: 20px; max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; font-size: 0.9em; text-align: left; }
-    #ranking { margin-top: 25px; text-align: left; font-size: 1em; max-height: 250px; overflow-y: auto; border: 1px solid #aaa; padding: 10px; }
+    #history {
+      margin: 16px auto 0;
+      height: 40vh; max-height: 420px; width: min(780px, 92vw);
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+      border: 1px solid #ccc; border-radius: 10px; padding: 10px;
+      text-align: left; font-size: 0.95em; line-height: 1.5; box-sizing: border-box;
+    }
+    #ranking {
+      margin: 22px auto 0; width: min(500px, 92vw);
+      text-align: left; font-size: 1em; border:1px solid #ddd; border-radius: 10px; padding: 12px;
+    }
+    .muted { opacity: .75; }
   </style>
 </head>
 <body>
   <h1>🌍 수도 맞히기 게임</h1>
-  <p>나라 이름이 나오면, 수도를 입력하고 엔터를 누르세요! (제한시간 2분)</p>
-  <div id="headerRow">
-    <span id="lives">❤️ 남은 기회: 10</span> | 
-    <span id="score">점수: 0</span> | 
-    <span id="timer">⏳ 120초</span>
-  </div>
-  <div id="status">시작하려면 아래 입력창에 답을 입력하세요!</div>
-  <input id="answer" type="text" placeholder="수도 입력" autofocus />
-  <div id="history"></div>
-  <div id="ranking"><strong>🏆 TOP 10 랭킹</strong><br>불러오는 중...</div>
+  <p class="muted">엔터로 제출하세요. 제한시간 <b>2분</b>, 오답 10번이면 종료!</p>
 
-  <!-- Firebase SDK -->
+  <div id="headerRow">
+    <span id="score">✅ 정답 수: 0개</span>
+    <span id="lives">❌ 오답: 0 / 10</span>
+    <span id="timer">⏱ 남은 시간: 02:00</span>
+  </div>
+
+  <p id="question">게임 시작! 입력창에 엔터를 눌러 첫 문제를 받으세요.</p>
+  <input id="answer" type="text" placeholder="수도 입력" autocomplete="off" />
+  <div id="status"></div>
+
+  <div id="history" aria-live="polite"></div>
+
+  <div id="ranking">
+    <strong>🏆 글로벌 랭킹 (Top 10)</strong>
+    <ol id="rankingList" class="muted"><li>불러오는 중…</li></ol>
+  </div>
+
+  <!-- Firebase (모듈러 SDK) -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getFirestore, collection, addDoc, query, orderBy, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // ==== 1) Firebase 설정 ====
+    // ==== 0) Firebase 설정 (네가 준 값 사용) ====
     const firebaseConfig = {
       apiKey: "AIzaSyCFBvuggzIu5X_Mnb-2p_8moEEaelp767Q",
       authDomain: "capital-game-475b6.firebaseapp.com",
       projectId: "capital-game-475b6",
-      storageBucket: "capital-game-475b6.appspot.com",
+      storageBucket: "capital-game-475b6.firebasestorage.app", // Firestore만 쓰므로 상관없음
       messagingSenderId: "797715470549",
       appId: "1:797715470549:web:0832e971bef0108da8ea5c"
     };
     const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+    const db  = getFirestore(app);
     const SCORES = collection(db, "scores");
 
-    // ==== 2) 국가/수도 데이터 (간단 예시: 실제는 190개 채워야 함) ====
-    const countries = {
-      "대한민국": "서울",
-      "일본": "도쿄",
-      "중국": "베이징",
-      "프랑스": "파리",
-      "독일": "베를린"
-      // TODO: 나머지 190개 전체 채워넣기
+    // ==== 1) 190개 나라/수도 ====
+    const quizData = {
+      "아프가니스탄":"카불","알바니아":"티라나","알제리":"알제","안도라":"안도라라벨라","앙골라":"루안다",
+      "안티구아 바부다":"세인트존스","아르헨티나":"부에노스아이레스","아르메니아":"예레반","호주":"캔버라",
+      "오스트리아":"빈","아제르바이잔":"바쿠","바하마":"나소","바레인":"마나마","방글라데시":"다카",
+      "바베이도스":"브리지타운","벨라루스":"민스크","벨기에":"브뤼셀","벨리즈":"벨모판","베냉":"포르토노보",
+      "부탄":"팀부","볼리비아":"수크레","보스니아 헤르체고비나":"사라예보","보츠와나":"가보로네","브라질":"브라질리아",
+      "브루나이":"반다르스리브가완","불가리아":"소피아","부르키나파소":"와가두구","부룬디":"기테가",
+      "카보베르데":"프라이아","캄보디아":"프놈펜","카메룬":"야운데","캐나다":"오타와","중앙아프리카공화국":"방기",
+      "차드":"은자메나","칠레":"산티아고","중국":"베이징","콜롬비아":"보고타","코모로":"모로니","콩고공화국":"브라자빌",
+      "콩고민주공화국":"킨샤사","코스타리카":"산호세","코트디부아르":"야무수크로","크로아티아":"자그레브","쿠바":"아바나",
+      "키프로스":"니코시아","체코":"프라하","덴마크":"코펜하겐","지부티":"지부티","도미니카":"로조",
+      "도미니카공화국":"산토도밍고","동티모르":"딜리","에콰도르":"키토","이집트":"카이로","엘살바도르":"산살바도르",
+      "적도기니":"말라보","에리트레아":"아스마라","에스토니아":"탈린","에스와티니":"음바바네","에티오피아":"아디스아바바",
+      "피지":"수바","핀란드":"헬싱키","프랑스":"파리","가봉":"리브르빌","감비아":"반줄","조지아":"트빌리시","독일":"베를린",
+      "가나":"아크라","그리스":"아테네","그레나다":"세인트조지스","과테말라":"과테말라시티","기니":"코나크리",
+      "기니비사우":"비사우","가이아나":"조지타운","아이티":"포르토프랭스","온두라스":"테구시갈파","헝가리":"부다페스트",
+      "아이슬란드":"레이캬비크","인도":"뉴델리","인도네시아":"자카르타","이란":"테헤란","이라크":"바그다드",
+      "아일랜드":"더블린","이스라엘":"예루살렘","이탈리아":"로마","자메이카":"킹스턴","일본":"도쿄","요르단":"암만",
+      "카자흐스탄":"아스타나","케냐":"나이로비","키리바시":"타라와","대한민국":"서울","쿠웨이트":"쿠웨이트시티",
+      "키르기스스탄":"비슈케크","라오스":"비엔티안","라트비아":"리가","레바논":"베이루트","레소토":"마세루",
+      "라이베리아":"몬로비아","리비아":"트리폴리","리히텐슈타인":"파두츠","리투아니아":"빌뉴스","룩셈부르크":"룩셈부르크",
+      "마다가스카르":"안타나나리보","말라위":"릴롱궤","말레이시아":"쿠알라룸푸르","몰디브":"말레","말리":"바마코",
+      "몰타":"발레타","마셜제도":"마주로","모리타니":"누악쇼트","모리셔스":"포트루이스","멕시코":"멕시코시티",
+      "미크로네시아":"팔리키르","몰도바":"키시너우","모나코":"모나코","몽골":"울란바토르","몬테네그로":"포드고리차",
+      "모로코":"라바트","모잠비크":"마푸토","미얀마":"네피도","나미비아":"빈트후크","네팔":"카트만두",
+      "네덜란드":"암스테르담","뉴질랜드":"웰링턴","니카라과":"마나과","니제르":"니아메이","나이지리아":"아부자",
+      "북마케도니아":"스코페","노르웨이":"오슬로","오만":"무스카트","파키스탄":"이슬라마바드","팔라우":"응게룰무드",
+      "파나마":"파나마시티","파푸아뉴기니":"포트모르즈비","파라과이":"아순시온","페루":"리마","필리핀":"마닐라",
+      "폴란드":"바르샤바","포르투갈":"리스본","카타르":"도하","루마니아":"부쿠레슈티","러시아":"모스크바","르완다":"키갈리",
+      "세인트키츠 네비스":"바스터르","세인트루시아":"캐스트리스","세인트빈센트 그레나딘":"킹스타운","사모아":"아피아",
+      "산마리노":"산마리노","상투메 프린시페":"상투메","사우디아라비아":"리야드","세네갈":"다카르","세르비아":"베오그라드",
+      "세이셸":"빅토리아","시에라리온":"프리타운","싱가포르":"싱가포르","슬로바키아":"브라티슬라바","슬로베니아":"류블랴나",
+      "솔로몬제도":"호니아라","소말리아":"모가디슈","남아프리카공화국":"프리토리아","남수단":"주바","스페인":"마드리드",
+      "스리랑카":"스리자야와르데네푸라코테","수단":"카르툼","수리남":"파라마리보","스웨덴":"스톡홀름","스위스":"베른",
+      "시리아":"다마스쿠스","타지키스탄":"두샨베","탄자니아":"도도마","태국":"방콕","토고":"로메","통가":"누쿠알로파",
+      "트리니다드 토바고":"포트오브스페인","튀니지":"튀니스","튀르키예":"앙카라","투르크메니스탄":"아슈하바트",
+      "투발루":"푸나푸티","우간다":"캄팔라","우크라이나":"키이우","아랍에미리트":"아부다비","영국":"런던",
+      "미국":"워싱턴","우루과이":"몬테비데오","우즈베키스탄":"타슈켄트","바누아투":"포트빌라","베네수엘라":"카라카스",
+      "베트남":"하노이","예멘":"사나","잠비아":"루사카","짐바브웨":"하라레"
     };
-    let countryList = Object.keys(countries);
 
-    // ==== 3) 게임 상태 ====
-    let lives = 10;
+    // ==== 2) 상태 ====
+    let remaining = Object.keys(quizData);
+    let current = null;
+    let wrongCount = 0;
     let score = 0;
-    let timer = 120;
-    let used = new Set();
-    let interval;
+    let gameOver = false;
 
-    const status = document.getElementById("status");
-    const answer = document.getElementById("answer");
+    // 타이머 (2분=120초)
+    const TOTAL = 120;
+    let left = TOTAL;
+    let timerId = null;
+    let timerStarted = false;
+
+    // ==== 3) DOM ====
+    const input = document.getElementById("answer");
+    const question = document.getElementById("question");
+    const statusEl = document.getElementById("status");
+    const history = document.getElementById("history");
     const livesEl = document.getElementById("lives");
     const scoreEl = document.getElementById("score");
     const timerEl = document.getElementById("timer");
-    const history = document.getElementById("history");
-    const ranking = document.getElementById("ranking");
+    const rankingList = document.getElementById("rankingList");
 
-    // ==== 4) 타이머 시작 ====
-    function startTimer() {
-      interval = setInterval(() => {
-        timer--;
-        timerEl.textContent = "⏳ " + timer + "초";
-        if (timer <= 0) endGame();
-      }, 1000);
-    }
-
-    // ==== 5) 문제 출제 ====
-    function nextQuestion() {
-      if (used.size >= countryList.length) {
-        endGame();
+    // ==== 4) 랭킹 ====
+    async function loadRanking(){
+      rankingList.innerHTML = "<li class='muted'>불러오는 중…</li>";
+      const q = query(SCORES, orderBy("score","desc"), orderBy("timestamp","asc"), limit(10));
+      const snap = await getDocs(q);
+      rankingList.innerHTML = "";
+      if (snap.empty) {
+        rankingList.innerHTML = "<li class='muted'>아직 기록이 없습니다</li>";
         return;
       }
-      let next;
-      do { next = countryList[Math.floor(Math.random() * countryList.length)]; } 
-      while (used.has(next));
-      used.add(next);
-      status.textContent = "❓ " + next + "의 수도는?";
-      answer.value = "";
-      answer.focus();
-    }
-
-    // ==== 6) 정답 확인 ====
-    answer.addEventListener("keypress", e => {
-      if (e.key === "Enter") {
-        const currentCountry = status.textContent.replace("❓ ", "").replace("의 수도는?", "");
-        const userAns = answer.value.trim();
-        if (userAns === countries[currentCountry]) {
-          score++;
-          scoreEl.textContent = "점수: " + score;
-          addHistory("✅ 정답! " + currentCountry + " → " + userAns, true);
-        } else {
-          lives--;
-          livesEl.textContent = "❤️ 남은 기회: " + lives;
-          addHistory("❌ 오답 (" + currentCountry + " 정답: " + countries[currentCountry] + ")", false);
-          if (lives <= 0) return endGame();
-        }
-        nextQuestion();
-      }
-    });
-
-    // ==== 7) 기록 표시 (자동 스크롤) ====
-    function addHistory(msg, correct) {
-      const div = document.createElement("div");
-      div.textContent = msg;
-      div.style.color = correct ? "green" : "red";
-      history.appendChild(div);
-      history.scrollTop = history.scrollHeight; // 자동 스크롤
-    }
-
-    // ==== 8) 게임 종료 ====
-    async function endGame() {
-      clearInterval(interval);
-      answer.disabled = true;
-      status.textContent = "🎮 게임 종료! 최종 점수: " + score;
-
-      const name = prompt("이름을 입력하세요 (랭킹 등록)");
-      if (name) {
-        await addDoc(SCORES, {
-          name: name,
-          score: score,
-          timestamp: new Date()
-        });
-      }
-      loadRanking();
-    }
-
-    // ==== 9) 랭킹 불러오기 ====
-    async function loadRanking() {
-      ranking.innerHTML = "<strong>🏆 TOP 10 랭킹</strong><br>";
-      const q = query(SCORES, orderBy("score", "desc"), limit(10));
-      const snap = await getDocs(q);
-      snap.forEach(doc => {
-        const data = doc.data();
-        ranking.innerHTML += `${data.name} — ${data.score}<br>`;
+      snap.forEach(doc=>{
+        const d = doc.data();
+        const li = document.createElement("li");
+        li.textContent = `${d.name} - ${d.score}개`;
+        rankingList.appendChild(li);
       });
     }
 
-    // ==== 10) 시작 ====
-    nextQuestion();
-    startTimer();
+    async function maybeRegisterRanking(finalScore){
+      // Top10 진입 가능성 확인을 위해 현재 Top10 조회
+      const q = query(SCORES, orderBy("score","desc"), limit(10));
+      const snap = await getDocs(q);
+      let qualifies = snap.size < 10;
+      if (!qualifies) {
+        const minTop = snap.docs[snap.docs.length-1].data().score;
+        qualifies = finalScore > minTop;
+      }
+      if (!qualifies) { await loadRanking(); return; }
+
+      const name = prompt("🎉 10위 안에 들었습니다! 이름을 입력하세요 (최대 20자):");
+      if (!name) { await loadRanking(); return; }
+      await addDoc(SCORES, { name: name.trim().slice(0,20), score: finalScore, timestamp: new Date() });
+      await loadRanking();
+    }
+
+    // ==== 5) 타이머 ====
+    const fmt = s => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+    function updateTimerText(){ timerEl.textContent = `⏱ 남은 시간: ${fmt(left)}`; }
+    function startTimer(){
+      if (timerStarted) return;
+      timerStarted = true;
+      updateTimerText();
+      timerId = setInterval(()=>{
+        if (gameOver) { clearInterval(timerId); return; }
+        left--; updateTimerText();
+        if (left <= 0){ clearInterval(timerId); timeUp(); }
+      }, 1000);
+    }
+    function timeUp(){
+      statusEl.textContent = "⏰ TIME OVER! 시간이 종료되었습니다.";
+      gameOver = true; input.disabled = true; maybeRegisterRanking(score);
+    }
+
+    // ==== 6) 게임 로직 ====
+    function nextQuestion(){
+      if (remaining.length === 0){
+        statusEl.textContent = "🎉 모든 문제를 다 풀었습니다! GAME CLEAR!";
+        gameOver = true; input.disabled = true; maybeRegisterRanking(score); return;
+      }
+      const idx = Math.floor(Math.random() * remaining.length);
+      current = remaining.splice(idx,1)[0]; // 중복 제거
+      question.textContent = `🇺🇳 "${current}"의 수도는?`;
+      statusEl.textContent = "";
+      input.value = ""; input.focus();
+    }
+
+    function appendHistory(country, answer){
+      const p = document.createElement("p");
+      p.textContent = `${country} ➝ ${answer || "(무응답)"} (정답: ${quizData[country]})`;
+      history.appendChild(p);
+      history.scrollTop = history.scrollHeight; // 자동 스크롤
+    }
+
+    function checkEndByWrong(){
+      if (wrongCount >= 10){
+        statusEl.textContent = "💀 GAME OVER! (오답 10회)";
+        gameOver = true; input.disabled = true; maybeRegisterRanking(score); return true;
+      }
+      return false;
+    }
+
+    function checkAnswer(){
+      if (gameOver) return;
+      if (!timerStarted) startTimer();
+      if (!current){ nextQuestion(); return; }
+
+      const v = input.value.trim();
+      if (v === quizData[current]){
+        statusEl.textContent = "✅ 정답입니다!";
+        score++; scoreEl.textContent = `✅ 정답 수: ${score}개`;
+      } else {
+        statusEl.textContent = "❌ 틀렸습니다!";
+        wrongCount++; livesEl.textContent = `❌ 오답: ${wrongCount} / 10`;
+        if (checkEndByWrong()) return;
+      }
+      appendHistory(current, v);
+      nextQuestion();
+    }
+
+    input.addEventListener("keydown", e => { if (e.key === "Enter") checkAnswer(); });
+
+    // ==== 7) 초기화 ====
     loadRanking();
+    updateTimerText();
+    // 첫 엔터로 시작되도록 current 없으면 nextQuestion은 checkAnswer에서 호출
+  </script>
+
+  <!-- PWA 서비스 워커 등록(옵션) -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("service-worker.js")
+        .then(()=>console.log("Service Worker registered"))
+        .catch(err=>console.error("SW registration failed:", err));
+    }
   </script>
 </body>
 </html>
